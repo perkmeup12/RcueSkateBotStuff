@@ -1,0 +1,400 @@
+%Matthew perkins
+%simulation of skatebot glide phase with given inital conditions.
+
+%Skate modeling script
+clc;clear;%close all;
+load SWliftdragdata.mat
+load relativetipmotion12_5.mat
+
+%assumptions
+%no friction force from tail during glide phase
+%y reference starts at height of mount at rest. all references from
+%assume constant angle of attack for now
+%initial conditions are known
+
+%skate constant values
+gravity=-9.81;                                  %acceleration due to gravity (m/s^2)
+dwater=1000;                                    %Density of water (kg/m^3)
+motorvoleng=pi*2.875^2/4*5.5;                   %volume of motor housing
+vehvoleng=632.88;                               %displacement of the vehicle (in^3)
+vehvolmet=vehvoleng*1.6387*10^-5;               %displacement of vehicle(m^3)
+buoyforce=-vehvolmet*dwater*gravity;            %buoyant force on vehicle
+buoydist=.01189;                                %distance of buoyant force from cg (m)
+vehiclemass=10.1687;                            %total mass of vehicle in kg
+additionalmass=1.53-.34;                        %additional ballast (kg)
+totalmass=vehiclemass+additionalmass;
+gravforce=totalmass*gravity;
+dragcoeff=1.72;                                 %calculated from SW flow sim
+crossarea=.02135;                               %cross sectional area of bottom of vehicle(m^2)
+IZZ=.31873;                                     %rotational moment of inertia (Kg*m^2)
+mountcgdifx=0.151638;                           %distance between cg and mountlocation (m)
+mountcgdify=1.5*2.54/100;                       %vertical distance between cg and mount loc (m)
+
+
+%assuming constant angle of attack
+AoA=1;  %angle of attack
+Fl1=interp1(SWdatastruct.AoA.data,SWdatastruct.lift.data,AoA,'linear','extrap'); %lift force at one BL/s at current AoA
+if Fl1<0
+    Fl1=0;
+end
+Fd1=interp1(SWdatastruct.AoA.data,SWdatastruct.drag.data,AoA,'linear','extrap'); %drag force at one BL/s at current AoA
+V1=.7112*cosd(AoA); %horizontal velocity of flow test (m/s)
+
+%dimensions of approximate ellipsoid for added mass force
+%calculations
+a=.35;              %forward radius (m)
+b=.07;              %vertical radius(m)
+c=.305;             %side radius (m)
+radfunC= @(intx) (dwater*pi)*(1-intx.^2/a)*c;
+Vertaddedmass=2*integral(radfunC,0,a);  %ellipsoid approximation
+
+radfunC2= @(intx2) intx2.^2.*(dwater*pi).*(1-intx2.^2/a)*c;
+m66=integral(radfunC2,-a,a);
+
+%Vertaddedmass=dwater*pi*a^2;       %flat plate approximation  
+%Vertaddedmass=0
+
+
+%% simulation
+dt=.001;                            %time step
+% time=0:dt:1.5;                        %time vector (s)
+
+%initial conditions
+pitchangle=-3;  %deg
+i=0;
+mountx=0;
+mounty=.04;
+midx=mountx+abs(sind(pitchangle)*mountcgdify);
+midy=mounty+cosd(pitchangle)*mountcgdify*-sign(pitchangle);
+x=mountx+(cosd(pitchangle)*mountcgdifx+abs(sind(pitchangle)*mountcgdify));
+y=mounty+(sind(pitchangle)*mountcgdifx*sign(pitchangle)+cosd(pitchangle)*mountcgdify*-sign(pitchangle));
+Vx=.23;
+Vy=.01;
+Ax=0;
+Ay=0;
+phase=0;
+u=abs(cosd(pitchangle)*Vx)+sind(pitchangle)*Vy;
+v=-sign(pitchangle)*abs(sind(pitchangle)*Vx)+abs(cosd(pitchangle))*Vy;
+r=-.4;
+udot=0;
+vdot=0;
+rdot=0;
+
+
+
+%initialize save variables
+xsave=[x];
+ysave=[y];
+Vxsave=[Vx];
+Vysave=[Vy];
+Axsave=[Ax];
+Aysave=[Ay];
+phasesave=[phase];
+liftsave=[0];
+usave=[u];
+vsave=[v];
+udotsave=[udot];
+vdotsave=[vdot];
+rsave=[r];
+rdotsave=[rdot];
+mountxsave=mountx;
+mountysave=mounty;
+pitchanglesave=pitchangle;
+midxsave=midx;
+midysave=midy;
+
+running=1;
+t=0;
+time=[t];
+while running==1;
+    i=i+1;
+    t=t+dt;
+    time=[time,t];
+    
+    if y>0 &&mounty>0
+        % Skate is gliding%%%%%%%%%%%%%%%%%%
+        % forces
+        liftforce= u^2*Fl1/V1^2;  %lift force at current speed
+        vertFd=.5*dwater*dragcoeff*crossarea*-v;                  %vertical drag force.
+        vertFd=0;
+        horizFd=-u^2*Fd1/V1^2;
+
+        %accelerations
+%         Ax=(horizFd/(totalmass));                              %horizontal acceleration
+%         Ay=(buoyforce+gravforce+vertFd+liftforce)/(totalmass+Vertaddedmass); %vertical acceleration
+         udot=(horizFd+totalmass*r*v)/totalmass;
+         vdot=(buoyforce+gravforce+vertFd+liftforce-(totalmass+Vertaddedmass)*r*u)/(totalmass+Vertaddedmass);
+         rdot=(buoyforce*buoydist*abs(cosd(pitchangle)))/(IZZ+m66);
+
+
+
+        %update variables
+        u=u+udot*dt;
+        v=v+vdot*dt;
+        r=r+rdot*dt;
+        Vx=abs(cosd(pitchangle))*u+abs(sind(pitchangle))*v*-sign(pitchangle);
+        Vy=abs(sind(pitchangle))*sign(pitchangle)*u+abs(cosd(pitchangle))*v;
+        x=x+Vx*dt;
+        y=y+Vy*dt;
+        midx=x-cosd(pitchangle)*mountcgdifx;
+        midy=y-sind(pitchangle)*mountcgdifx;
+        mountx=x-(cosd(pitchangle)*mountcgdifx+sind(pitchangle)*mountcgdify*-sign(pitchangle));
+        mounty=y+(sind(pitchangle)*mountcgdifx*-sign(pitchangle)-abs(cosd(pitchangle)*mountcgdify));
+        pitchangle=pitchangle+r*dt*180/pi;
+        phase=2;
+    else
+        %skate has hit the ground, stopping the vehicle
+        phase=0;
+        u=0;
+        v=0;
+        r=0;
+        Vx=0;
+        Vy=0;
+        running=0;
+    end
+    
+    %save variables
+    xsave=[xsave,x];
+    ysave=[ysave,y];
+    Vxsave=[Vxsave,Vx];
+    Vysave=[Vysave,Vy];
+    Axsave=[Axsave,Ax];
+    Aysave=[Aysave,Ay];
+    liftsave=[liftsave,liftforce];
+    phasesave=[phasesave,phase];
+    usave=[usave,u];
+    vsave=[vsave,v];
+    udotsave=[udotsave,udot];
+    vdotsave=[vdotsave,vdot];
+    rsave=[rsave,r];
+    rdotsave=[rdotsave,rdot];
+    mountxsave=[mountxsave,mountx];
+    mountysave=[mountysave,mounty];
+    pitchanglesave=[pitchanglesave,pitchangle];
+    midxsave=[midxsave,midx];
+    midysave=[midysave,midy];
+    
+    %update time
+    
+    
+end
+
+%% Experimental data
+%Matthew Perkins
+%Galil and IMU Data parse and plot
+clc;clear;close all;
+
+%define filename time variables
+% fH=21;
+% fM=08;
+% fS=22.779;
+% fSx=num2str(fS-floor(fS));
+ initialwait=2.5;                      %initial wait before program starts (3sec)
+ trimlength=6;                       %video only lasts 4 seconds, we'll take 6 secs of data to be safe
+L1=dir('*imudata.txt');
+L2=dir('*galildata.txt');
+
+% open file and parse data %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%create file names
+% decimal=sprintf('%0.3f',str2num(fSx));
+% imufilename=[sprintf('%02d',fH),',',sprintf('%02d',fM),',',sprintf('%02d',floor(fS)),decimal(2:end),'imudata.txt'];
+% galilfilename=[sprintf('%02d',fH),',',sprintf('%02d',fM),',',sprintf('%02d',floor(fS)),decimal(2:end),'galildata.txt'];
+imufilename=L1.name;
+galilfilename=L2.name;
+%open files and make FID
+imuFID=fopen(imufilename);
+galilFID=fopen(galilfilename);
+
+%scan file data
+imudata=textscan(imuFID,'%f,%f,%f,%6c,%f,%f,%f,%f,%f,%f,%f,%f,%f*%s','headerlines',2);
+galildata=textscan(galilFID,'%1c%f,%f,%f,%f %f','headerlines',1);
+
+
+%assign IMU data to variables
+imuH=imudata{:,1};                            %hour from imu file
+imuM=imudata{:,2};                            %minute from imu file
+imuS=imudata{:,3};                            %second from imu file
+imulabel=imudata{:,4};                        %label string
+SensorYaw=imudata{:,5};                       %calculated attitude heading angle in degrees
+SensorPitch=imudata{:,6};                     %calculated attitude pitch angle in degrees
+SensorRoll=imudata{:,7};                      %calculate attitude roll angle in degrees
+SensorBodyAccelX=imudata{:,8};                %Linear Accel estimate in body x axis (no gravity) m/s^2
+SensorBodyAccelY=imudata{:,9};                %Linear Accel estimate in body y axis (no gravity) m/s^2
+SensorBodyAccelZ=imudata{:,10};               %Linear Accel estimate in body z axis (no gravity) m/s^2
+SensorGyrox=imudata{:,11};                    %Compensated angular rate in the body X-axis rad/s
+SensorGyroy=imudata{:,12};                    %Compensated angular rate in the body Y-axis rad/s
+SensorGyroz=imudata{:,13};                    %Compensated angular rate in the body Z-axis rad/s
+
+
+%assign Galil data to variables
+galilH=galildata{:,2};                            %hour from galil file
+galilM=galildata{:,3};                            %minute from galil file
+galilS=galildata{:,4};                            %second from galil file
+galilMotorVelocity=galildata{:,5};                %velocity of motor cnts/s
+galilEncoderPosition=galildata{:,6};              %position of motor cnts
+
+
+%clear data to minimize memory usage
+clearvars imudata galildata
+
+%maketimevectors
+imutstart=[imuH(1),imuM(1),imuS(1)];
+imutimevec=(imuH-imutstart(1))*3600+(imuM-imutstart(2))*60+imuS-imutstart(3);
+
+galiltstart=[galilH(1),galilM(1),galilS(1)];
+galiltimevec=(galilH-galiltstart(1))*3600+(galilM-galiltstart(2))*60+galilS-galiltstart(3);
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% trim data %%%%%%%%%%%%%%%%%%%%%
+
+%imu
+imuInd=find(imutimevec>initialwait & imutimevec<initialwait+trimlength);
+imutimevec=imutimevec(imuInd);
+SensorYaw=SensorYaw(imuInd);
+SensorPitch=SensorPitch(imuInd);
+SensorRoll=SensorRoll(imuInd);
+SensorBodyAccelX=SensorBodyAccelX(imuInd);
+SensorBodyAccelY=SensorBodyAccelY(imuInd);
+SensorBodyAccelZ=SensorBodyAccelZ(imuInd);
+SensorGyrox=SensorGyrox(imuInd);
+SensorGyroy=SensorGyroy(imuInd);
+SensorGyroz=SensorGyroz(imuInd);
+
+%galil
+galilInd=find(galiltimevec>initialwait & galiltimevec<initialwait+trimlength);
+galiltimevec=galiltimevec(galilInd);
+galilEncoderPosition=galilEncoderPosition(galilInd);
+galilMotorVelocity=galilMotorVelocity(galilInd);
+
+% graph %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+figure
+plot(imutimevec,SensorPitch,imutimevec,SensorRoll);
+title('Roll and Pitch of the sensor')
+xlabel('Time (s)')
+ylabel('Degrees')
+legend('Pitch','Roll')
+grid on
+
+figure
+plot(imutimevec,SensorBodyAccelX,imutimevec,SensorBodyAccelY,imutimevec,SensorBodyAccelZ);
+title('Inertial Body Accelerations (no Gravity)')
+xlabel('Time (s)')
+ylabel('Acceleration (m/s^2)')
+legend('Body X','Body Y', 'Body Z')
+grid on
+
+figure
+plot(imutimevec,SensorGyrox,imutimevec,SensorGyroy,imutimevec,SensorGyroz)
+title('Angular Rates')
+xlabel('Time (s)')
+ylabel('Rates (rad/s)')
+legend('Gyro X','Gyro Y', 'Gyro Z')
+grid on
+
+figure
+plot(galiltimevec,galilEncoderPosition)
+title('Encoder Position')
+xlabel('Time (s)')
+ylabel('Position (cnts)')
+grid on
+
+figure
+plot(galiltimevec,galilMotorVelocity)
+title('Motor Speed')
+xlabel('Time (s)')
+ylabel('Speed (cnts/s)')
+grid on
+
+figure
+subplot(3,1,1)
+plot(imutimevec,SensorPitch,imutimevec,SensorRoll);
+title('Roll and Pitch of the sensor')
+xlabel('Time (s)')
+ylabel('Degrees')
+legend('Pitch','Roll')
+grid on
+
+subplot(3,1,2)
+plot(imutimevec,SensorBodyAccelX,imutimevec,SensorBodyAccelY,imutimevec,SensorBodyAccelZ);
+title('Inertial Body Accelerations (no Gravity)')
+xlabel('Time (s)')
+ylabel('Acceleration (m/s^2)')
+legend('Body X','Body Y', 'Body Z')
+grid on
+
+subplot(3,1,3)
+plot(galiltimevec,galilEncoderPosition)
+title('Encoder Position')
+xlabel('Time (s)')
+ylabel('Position (cnts)')
+grid on
+
+
+
+%initial condition approximations
+index=find(imutimevec>3&imutimevec<3.5);
+dif=diff(imutimevec);
+VehVx=sum(SensorBodyAccelY(index).*dif(index))
+VehVy=sum(SensorBodyAccelZ(index).*dif(index))
+VehVz=sum(SensorBodyAccelX(index).*dif(index))
+
+%% Plotting data
+xtravel=xsave(end);
+xsaveeng=39.37*xsave;
+ysaveeng=39.37*ysave;
+
+figure
+plot(time,ysave*100)
+title('Vehicle Height above Ground')
+xlabel('time (s)')
+ylabel('Height (cm)')
+grid on
+
+dx=0.46355;     %distance from nose to leg mount
+recordedtimes=[2+18/30,2+24/30,2+8/30,1+29/30,2+5/30,2+25/30,2+16/30,2+23/30];
+recordedspeeds=dx./recordedtimes;
+
+% subplot(suba,1,4)
+% title('1=launch phase, 2=glide phase')
+% plot(time,phasesave(2:end))
+
+% figure
+% subplot(2,1,1)
+% title('Accelerations')
+% plot(time,Aysave(2:end))
+% xlabel('time (s)')
+% ylabel('acceleration (m/s^2)')
+% legend('Y direction')
+
+%
+figure
+plot(xsave,ysave)
+xlabel('x (m)')
+ylabel('y (m)')
+title('Vehicle Position')
+axis equal
+
+figure
+for ii=1:10:length(xsave)
+orientationx=[xsave(ii);midxsave(ii);mountxsave(ii)];
+orientationy=[ysave(ii);midysave(ii);mountysave(ii)];
+plot(orientationx,orientationy);
+xlabel('x (m)')
+ylabel('y (m)')
+title('Vehicle Orientation')
+axis equal
+hold on
+end
+
+figure
+plot(time,pitchanglesave)
+xlabel('time (s)')
+ylabel('Pitch angle (deg)')
+title('PitchAngle')
+
+figure
+plot(time,rsave)
+title('Pitch')
+xlabel('time (s)')
+ylabel('rad/s')
+
+
